@@ -1,0 +1,96 @@
+services:
+  postgres:
+    image: postgres:latest
+    container_name: forecasts_db
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    networks:
+      - internal
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  auth:
+    build:
+      context: .
+      dockerfile: auth/Dockerfile
+    container_name: auth_service
+    env_file:
+      - .env
+    environment:
+      AUTH_HOST: ${AUTH_HOST}
+      AUTH_PORT: ${AUTH_PORT}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP_HRS: ${JWT_EXP_HRS}
+      DB_CONNECTION_URL: ${DB_CONNECTION_URL}
+    networks:
+      - internal
+    expose:
+      - ${AUTH_PORT}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  weather:
+    build:
+      context: .
+      dockerfile: weather/Dockerfile
+    container_name: weather_service
+    env_file:
+      - .env
+    environment:
+      FORECAST_HOST: ${FORECAST_HOST}
+      FORECAST_PORT: ${FORECAST_PORT}
+      WEATHER_API_KEY: ${WEATHER_API_KEY}
+      WEATHER_FREQ_SECS: ${WEATHER_FREQ_SECS}
+      DB_CONNECTION_URL: ${DB_CONNECTION_URL}
+    networks:
+      - internal
+      - network-ext
+    expose:
+      - ${FORECAST_PORT}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    container_name: gateway_service
+    env_file:
+      - .env
+    environment:
+      GATEWAY_HOST: ${GATEWAY_HOST}
+      GATEWAY_PORT: ${GATEWAY_PORT}
+      AUTH_HOST: ${AUTH_HOST}
+      AUTH_PORT: ${AUTH_PORT}
+      FORECAST_HOST: ${FORECAST_HOST}
+      FORECAST_PORT: ${FORECAST_PORT}
+    networks:
+      - internal
+      - network-ext
+    ports:
+      - "3005:3005"
+    depends_on:
+      - auth
+      - weather
+
+networks:
+  internal:
+    driver: bridge
+    internal: true
+  network-ext:
+    driver: bridge
+volumes:
+  postgres_data:
